@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import imagehash
 
+
 def strip_exif(filepath):
     try:
         img = Image.open(filepath)
@@ -102,22 +103,53 @@ def find_duplicates(folder_path):
 
 class DuplicateApp:
     def __init__(self, root):
+        self.colors = {
+            "bg": "#f0f2f5",
+            "frame_bg": "#ffffff",
+            "accent": "#007acc",
+            "text": "#333333",
+            "button": "#007acc",
+            "danger": "#d9534f",
+            "success": "#5cb85c"
+        }
+
         self.root = root
-        self.root.title("Поиск дубликатов фото")
-        self.root.geometry("800x600")
+        self.root.title("Сканер дубликатов и похожих фото")
+        self.root.geometry("1100x700")
+        self.root.configure(bg=self.colors["bg"])
 
-        self.label = Label(root, text="Выберите папку для поиска дубликатов", font=("Arial", 14))
-        self.label.pack(pady=20)
+        # Центрируем окно на экране
+        self.center_window(1100, 700)
 
-        self.select_button = Button(root, text="Выбрать папку", command=self.select_folder)
-        self.select_button.pack(pady=10)
+        # Переменные для пагинации
+        self.current_page = 0
+        self.page_size = 20
+        self.groups = {}
 
-        self.about_button = Button(self.root, text="О программе", command=self.show_about)
-        self.about_button.pack(pady=5)
+        top_frame = Frame(self.root, bg=self.colors["accent"])
+        top_frame.pack(fill="x", padx=10, pady=10)
+        self.label = Label(top_frame, text="Выберите папку для поиска дубликатов", font=("Segoe UI", 14), fg="white",
+                           bg=self.colors["accent"])
+        self.label.pack(pady=10)
+        button_frame = Frame(self.root, bg=self.colors["bg"])
+        button_frame.pack(pady=10)
+        self.select_button = Button(button_frame, text="📁 Выбрать папку", width=20,
+                                    bg=self.colors["button"], fg="white", font=("Segoe UI", 10, "bold"),
+                                    relief="flat", bd=0, command=self.select_folder)
+        self.select_button.pack(side="left", padx=10)
+        self.about_button = Button(button_frame, text="ℹ О программе", width=20,
+                                   bg="#5bc0de", fg="white", font=("Segoe UI", 10, "bold"),
+                                   relief="flat", bd=0, command=self.show_about)
+        self.about_button.pack(side="left", padx=10)
 
-        self.result_canvas = Canvas(root)
-        self.scrollbar = Scrollbar(root, orient="vertical", command=self.result_canvas.yview)
-        self.scrollable_frame = Frame(self.result_canvas)
+        # Результаты сканирования
+        result_frame = Frame(root, bg=self.colors["bg"])
+        result_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.result_canvas = Canvas(result_frame, bg=self.colors["bg"], highlightthickness=0)
+        self.result_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.scrollbar = Scrollbar(result_frame, orient="vertical", command=self.result_canvas.yview)
+        self.scrollable_frame = Frame(self.result_canvas, bg=self.colors["frame_bg"])
 
         self.scrollable_frame.bind(
             "<Configure>",
@@ -130,17 +162,48 @@ class DuplicateApp:
         self.result_canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
+        self.current_page = 0
+        self.page_size = 50  # Количество групп на странице
+
+    def _on_mousewheel(self, event):
+        self.result_canvas.yview_scroll(int(-1 * (event.delta / 60)), "units")
+
+    def clear_interface(self):
+        # Удаляем все виджеты в текущем интерфейсе
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+    def center_window(self, width, height):
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+
     def show_about(self):
         about_text = (
-            "Сканер дублирующих и похожих фото\n"
-            "Версия: 5.0\n"
+            "📸 Сканер дубликатов и похожих фото\n"
+            "Версия: 6.0\n"
             "Автор: krik\n"
-            "Email: krik@bee-media.ru\n"
-            "Программа помогает находить дубликаты и похожие фото,\n"
+            "Email: krik@bee-media.ru\n\n"
+            "Эта программа помогает находить точные и похожие фотографии,\n"
             "позволяет удалять их, освобождая место на диске.\n"
             "Поддерживает MD5-хэши и perceptual hash (phash/dhash/whash)."
         )
-        messagebox.showinfo("О программе", about_text)
+        top = Toplevel(self.root)
+        top.title("О программе")
+        top.geometry("500x300")
+        top.configure(bg="white")
+        top.resizable(False, False)
+
+        Label(top, text="ℹ О программе", font=("Segoe UI", 16, "bold"), bg="white", fg="#333").pack(pady=10)
+
+        info_frame = Frame(top, bg="white")
+        info_frame.pack(padx=20, pady=10)
+
+        Label(info_frame, text=about_text, font=("Segoe UI", 10), bg="white", justify="left", fg="#555").pack()
+
+        Button(top, text="Закрыть", command=top.destroy, bg=self.colors["accent"], fg="white", width=10).pack(pady=10)
 
     def delete_all_duplicates(self, files, selected_original_var, widgets_list):
         original = selected_original_var.get()
@@ -190,6 +253,50 @@ class DuplicateApp:
             print(f"Ошибка чтения {filepath}: {e}")
             return None
 
+    def find_similar_groups(folder_path, threshold=8, callback=None, max_workers=4):
+        hash_groups = {}
+        all_files = []
+        for root, dirs, files in os.walk(folder_path):
+            for filename in files:
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                    filepath = os.path.join(root, filename)
+                    all_files.append(filepath)
+        total_files = len(all_files)
+        processed = 0
+
+        def process_file(filepath):
+            nonlocal processed
+            phash = get_phash(filepath)
+            if phash:
+                matched = False
+                for existing_hash in hash_groups:
+                    if abs(imagehash.hex_to_hash(existing_hash) - imagehash.hex_to_hash(phash)) <= threshold:
+                        hash_groups[existing_hash].append(filepath)
+                        matched = True
+                        break
+                if not matched:
+                    hash_groups[phash] = [filepath]
+            processed += 1
+            if callback:
+                callback(processed, total_files)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            executor.map(process_file, all_files[:1000])  # Ограничиваем анализ до 1000 файлов
+
+        return {h: files for h, files in hash_groups.items() if len(files) > 1}
+
+    def previous_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.show_duplicate_groups(self.groups)
+
+    def next_page(self):
+        total_groups = len(self.groups)
+        max_page = total_groups // self.page_size
+        if self.current_page < max_page:
+            self.current_page += 1
+            self.show_duplicate_groups(self.groups)
+
     def find_duplicates_by_md5(self, folder_path):
         hashes = {}
         for root, dirs, files in os.walk(folder_path):
@@ -209,17 +316,30 @@ class DuplicateApp:
             widget.destroy()
 
         if not groups:
-            Label(self.scrollable_frame, text="Дубликатов не найдено.", font=("Arial", 12)).pack(pady=20)
+            Label(self.scrollable_frame, text="Дубликатов не найдено.", font=("Segoe UI", 12),
+                  bg=self.colors["frame_bg"], fg=self.colors["text"]).pack(pady=20)
             return
 
         total_free_space = 0
 
-        for idx, (file_hash, files) in enumerate(groups.items()):
-            group_frame = Frame(self.scrollable_frame, bd=2, relief="groove")
+        group_list = list(groups.items())
+        start_idx = self.current_page * self.page_size
+        end_idx = min((self.current_page + 1) * self.page_size, len(group_list))
+        paginated_groups = group_list[start_idx:end_idx]
+
+        # ✅ Проверка на пустой результат после пагинации
+        if not paginated_groups:
+            Label(self.scrollable_frame, text="На этой странице дубликатов не найдено.", font=("Segoe UI", 12),
+                  bg=self.colors["frame_bg"], fg=self.colors["text"]).pack(pady=20)
+            return
+
+        for idx, (file_hash, files) in enumerate(paginated_groups, start=start_idx + 1):
+            group_frame = Frame(self.scrollable_frame, bd=2, relief="solid", bg=self.colors["frame_bg"],
+                                highlightbackground="#cccccc", highlightthickness=1)
             group_frame.pack(padx=10, pady=10, fill="x")
 
-            Label(group_frame, text=f"Группа {idx + 1} ({len(files)} файлов)", font=("Arial", 12, "bold")).pack(
-                anchor="w")
+            Label(group_frame, text=f"Группа {idx} ({len(files)} файлов)", font=("Segoe UI", 12, "bold"),
+                  bg=self.colors["frame_bg"], fg=self.colors["text"]).pack(anchor="w", padx=10, pady=5)
 
             file_data = []
             for filepath in files:
@@ -229,78 +349,94 @@ class DuplicateApp:
             free_space = sum(size for _, size in file_data[1:])
             total_free_space += free_space
 
-            Label(group_frame, text=f"Можно освободить: {self.format_size(free_space)}", fg="green").pack(anchor="w",
-                                                                                                          padx=5)
+            Label(group_frame, text=f"Можно освободить: {self.format_size(free_space)}", fg=self.colors["success"],
+                  font=("Segoe UI", 10), bg=self.colors["frame_bg"]).pack(anchor="w", padx=10)
 
-            photos_container = Frame(group_frame)
-            photos_container.pack(fill="x", padx=5, pady=5)
+            photos_container = Frame(group_frame, bg=self.colors["frame_bg"])
+            photos_container.pack(fill="x", padx=10, pady=10)
 
             selected_original = StringVar(value=file_data[0][0])
             group_widgets = []
 
-            row_frame = Frame(photos_container)
+            row_frame = Frame(photos_container, bg=self.colors["frame_bg"])
             row_frame.pack(fill="x")
 
             for i, (filepath, size) in enumerate(file_data):
                 if i % 3 == 0 and i != 0:
-                    row_frame = Frame(photos_container)
+                    row_frame = Frame(photos_container, bg=self.colors["frame_bg"])
                     row_frame.pack(fill="x")
 
-                frame = Frame(row_frame)
+                frame = Frame(row_frame, bg=self.colors["frame_bg"])
                 frame.pack(side="left", padx=15, pady=5)
                 group_widgets.append(frame)
-
-                photo_holder = Frame(frame)
-                photo_holder.pack()
 
                 try:
                     img = Image.open(filepath).resize((160, 160))
                     img_tk = ImageTk.PhotoImage(img)
-                    lbl = Label(photo_holder, image=img_tk)
+                    lbl = Label(frame, image=img_tk, bg=self.colors["frame_bg"])
                     lbl.image = img_tk
                     lbl.pack()
-
-                    def on_click(event, label=lbl, path=filepath):
-                        big_img = Image.open(path).resize((240, 240))
-                        big_img_tk = ImageTk.PhotoImage(big_img)
-                        label.configure(image=big_img_tk)
-                        label.image = big_img_tk
-
-                    def on_double_click(event, path=filepath):
-                        self.show_full_size(path)
-
-                    lbl.bind("<Button-1>", on_click)
-                    lbl.bind("<Double-Button-1>", on_double_click)
+                    lbl.bind("<Double-Button-1>", lambda e, path=filepath: self.show_full_size(path))
                 except Exception:
-                    Label(frame, text="❌ Не загружено").pack()
+                    Label(frame, text="❌ Не загружено", bg=self.colors["frame_bg"], fg="red").pack()
 
-                Label(frame, text=os.path.basename(filepath), font=("Arial", 9), wraplength=160,
-                      justify="center").pack()
-                Label(frame, text=self.format_size(size), font=("Arial", 8), fg="gray").pack()
-                Radiobutton(frame, text="Оригинал", variable=selected_original, value=filepath,
-                            font=("Arial", 9)).pack()
-                Button(frame, text="🗑 Удалить", width=10,
-                       command=lambda f=filepath, p=frame: self.delete_and_remove(f, p)).pack(pady=5)
+                Label(frame, text=os.path.basename(filepath), font=("Segoe UI", 9), wraplength=160, justify="center",
+                      bg=self.colors["frame_bg"], fg=self.colors["text"]).pack()
+                Label(frame, text=self.format_size(size), font=("Segoe UI", 8), fg="#777777",
+                      bg=self.colors["frame_bg"]).pack()
 
-            delete_all_btn = Button(group_frame, text="🧹 Удалить все копии", bg="red", fg="white",
+                Radiobutton(frame, text="✅ Оригинал", variable=selected_original, value=filepath,
+                            font=("Segoe UI", 9), bg=self.colors["frame_bg"], fg=self.colors["text"]).pack()
+
+                btn_frame = Frame(frame, bg=self.colors["frame_bg"])
+                btn_frame.pack(pady=5)
+
+                Button(btn_frame, text="🗑 Удалить", width=10,
+                       bg=self.colors["danger"], fg="white", relief="flat",
+                       command=lambda f=filepath, p=frame: self.delete_and_remove(f, p)).pack()
+
+            delete_all_btn = Button(group_frame, text="🧹 Удалить все копии", bg=self.colors["danger"], fg="white",
+                                    font=("Segoe UI", 10, "bold"), relief="flat", padx=10, pady=5,
                                     command=lambda fs=[f[0] for f in file_data], sv=selected_original,
-                                                   widgets=group_widgets: self.delete_all_duplicates(fs, sv, widgets))
-            delete_all_btn.pack(pady=5)
+                                                   widgets=group_widgets:
+                                    self.delete_all_duplicates(fs, sv, widgets))
+            delete_all_btn.pack(pady=10)
 
-        summary_frame = Frame(self.scrollable_frame, bd=2, relief="ridge", bg="lightyellow")
+        # Общий объём
+        summary_frame = Frame(self.scrollable_frame, bg="#e9f5db", bd=1, relief="groove")
         summary_frame.pack(padx=10, pady=10, fill="x")
-        Label(summary_frame, text="Общий объём для освобождения:", font=("Arial", 12, "bold"), bg="lightyellow").pack(
-            anchor="w")
-        Label(summary_frame, text=self.format_size(total_free_space), font=("Arial", 14), fg="green",
-              bg="lightyellow").pack(anchor="w", padx=10, pady=5)
+
+        Label(summary_frame, text="Общий объём для освобождения:", font=("Segoe UI", 12, "bold"), bg="#e9f5db",
+              fg="#2e7d32").pack(anchor="w", padx=10, pady=5)
+        Label(summary_frame, text=self.format_size(total_free_space), font=("Segoe UI", 14, "bold"), bg="#e9f5db",
+              fg="#2e7d32").pack(anchor="w", padx=10, pady=5)
+
+        # Навигация
+        nav_frame = Frame(self.scrollable_frame, bg=self.colors["bg"])
+        nav_frame.pack(pady=10)
+
+        prev_btn = Button(nav_frame, text="⬅ Предыдущая страница", width=20, bg=self.colors["accent"], fg="white",
+                          command=self.previous_page)
+        prev_btn.pack(side="left", padx=5)
+
+        next_btn = Button(nav_frame, text="Следующая страница ➡", width=20, bg=self.colors["accent"], fg="white",
+                          command=self.next_page)
+        next_btn.pack(side="right", padx=5)
 
     def select_folder(self):
+        # Очищаем старые результаты
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+
+        self.current_page = 0  # Сбрасываем пагинацию
+
         folder = filedialog.askdirectory(title="Выберите папку с фотографиями")
         if folder:
             self.label.config(text=f"Идёт сканирование: {folder}")
             self.root.update()
 
-            duplicates = find_similar_images(folder)
+            duplicates = find_similar_images(folder)  # или find_duplicates_by_md5
+            self.groups = duplicates  # Сохраняем группы для пагинации
             self.show_duplicate_groups(duplicates)
             messagebox.showinfo("Готово", "Сканирование завершено!")
 
